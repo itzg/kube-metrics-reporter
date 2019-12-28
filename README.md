@@ -44,3 +44,75 @@ kubernetes_pod_container,container_name=grafana,host=dbc5f9812889,namespace=defa
 kubernetes_pod_container,container_name=influxdb,host=dbc5f9812889,namespace=default,pod_name=influxdb-0 cpu_usage_millicores=1i,memory_usage_mbytes=37i 1577507390268680300
 ```
 
+## Service account
+
+Since this application accesses the metrics API of the kubernetes API service, the pod will need to be assigned a service account with an appropriate role.
+
+The following shows how a service account could be declared:
+
+```yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-metrics-monitor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kube-metrics-monitor
+rules:
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - pods
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kube-metrics-monitor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kube-metrics-monitor
+subjects:
+  - kind: ServiceAccount
+    name: kube-metrics-monitor
+```
+
+The following then shows how a deployment could be configured to use the service account:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-metrics-reporter
+  labels:
+    app: kube-metrics-reporter
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: kube-metrics-reporter
+      labels:
+        app: kube-metrics-reporter
+    spec:
+      serviceAccountName: kube-metrics-monitor
+      containers:
+        - name: kube-metrics-reporter
+          image: itzg/kube-metrics-reporter:v0.1.0
+          env:
+            - name: TELEGRAF_ENDPOINT
+              value: telegraf:8094
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 10m
+      restartPolicy: Always
+  selector:
+    matchLabels:
+      app: kube-metrics-reporter
+```
