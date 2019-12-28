@@ -1,4 +1,4 @@
-Simple application that accesses the Kubernetes metrics API and reports pod-container metrics.
+Simple application that accesses the [Kubernetes metrics API](https://github.com/kubernetes/metrics) and reports pod-container metrics.
 
 ## Usage
 

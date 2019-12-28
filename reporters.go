@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/itzg/line-protocol-sender"
+	lpsender "github.com/itzg/line-protocol-sender"
 	"go.uber.org/zap"
 	"io"
 	"time"
@@ -19,7 +19,7 @@ type Batch interface {
 	Report(podName, containerName string, cpuUsage, memUsage int64)
 }
 
-type StdoutReporter struct {}
+type StdoutReporter struct{}
 
 type StdoutBatch struct {
 	timestamp time.Time
@@ -28,8 +28,8 @@ type StdoutBatch struct {
 
 func (r StdoutReporter) Start(namespace string) Batch {
 	return &StdoutBatch{
-		timestamp:time.Now(),
-		namespace:namespace,
+		timestamp: time.Now(),
+		namespace: namespace,
 	}
 }
 
@@ -59,9 +59,9 @@ func (t *telegrafBatch) Close() error {
 
 func (t *TelegrafReporter) Start(namespace string) Batch {
 	return &telegrafBatch{
-		client:t.client,
-		timestamp:time.Now(),
-		namespace:namespace,
+		client:    t.client,
+		timestamp: time.Now(),
+		namespace: namespace,
 	}
 }
 
@@ -90,5 +90,5 @@ func NewTelegrafReporter(telegrafEndpoint string, logger *zap.SugaredLogger) (*T
 	if err != nil {
 		return nil, err
 	}
-	return &TelegrafReporter{client:client}, nil
+	return &TelegrafReporter{client: client}, nil
 }
