@@ -8,6 +8,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	clientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	"sync"
 )
 
 type LabelResolver interface {
@@ -19,7 +20,8 @@ type WatchingLabelResolver struct {
 	logger       *zap.SugaredLogger
 
 	// labels maps pod name to labels
-	labels map[string]map[string]string
+	labels     map[string]map[string]string
+	labelsLock sync.RWMutex
 }
 
 func NewWatchingLabelResolver(c *rest.Config, namespace string, logger *zap.SugaredLogger) (*WatchingLabelResolver, error) {
@@ -40,6 +42,8 @@ func NewWatchingLabelResolver(c *rest.Config, namespace string, logger *zap.Suga
 }
 
 func (w *WatchingLabelResolver) Resolve(podName string) map[string]string {
+	w.labelsLock.RLock()
+	defer w.labelsLock.RUnlock()
 	return w.labels[podName]
 }
 
@@ -56,15 +60,19 @@ func (w *WatchingLabelResolver) watch() {
 		pod := e.Object.(*corev1.Pod)
 		switch e.Type {
 		case watch.Added, watch.Modified:
+			w.labelsLock.Lock()
 			w.labels[pod.Name] = pod.Labels
+			w.labelsLock.Unlock()
 		case watch.Deleted:
+			w.labelsLock.Lock()
 			delete(w.labels, pod.Name)
+			w.labelsLock.Unlock()
 		}
 	}
 }
 
 type DisabledLabelResolver struct{}
 
-func (d *DisabledLabelResolver) Resolve(podName string) map[string]string {
+func (d *DisabledLabelResolver) Resolve(string) map[string]string {
 	return nil
 }
