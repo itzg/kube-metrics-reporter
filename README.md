@@ -77,6 +77,10 @@ rules:
     resources:
       - pods
     verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs: ["watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -90,6 +94,8 @@ subjects:
   - kind: ServiceAccount
     name: kube-metrics-monitor
 ```
+
+> If not including labels, you can remove the pods watch on `apiGroups:[""]`
 
 The following then shows how a deployment could be configured to use the service account:
 

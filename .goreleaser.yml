@@ -26,6 +26,7 @@ dockers:
   - image_templates:
       - itzg/kube-metrics-reporter:latest
       - itzg/kube-metrics-reporter:{{ .Tag }}
+    dockerfile: Dockerfile.release
 checksum:
   name_template: 'checksums.txt'
 snapshot:
