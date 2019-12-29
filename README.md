@@ -5,15 +5,17 @@
 
 Simple application that accesses the [Kubernetes metrics API](https://github.com/kubernetes/metrics) and reports pod-container metrics.
 
+The Metrics API is exposed by a deployed [Metrics Server](https://kubernetes.io/docs/tasks/debug-application-cluster/resource-metrics-pipeline/#metrics-server) which is included in most managed clusters. [It can also be deployed separately.](https://github.com/kubernetes-sigs/metrics-server).
+
 ## Usage
 
 ```
+  -include-labels
+    	include pod labels in reported metrics (env INCLUDE_LABELS)
   -interval duration
-    	the interval of metrics collection (env INTERVAL) (default 1m0s)
+    	the interval of metrics collection (env INTERVAL)
   -namespace string
     	the namespace of the pods to collect (env NAMESPACE) (default "default")
-  -repeat
-    	indicates console reporting should repeat at the given interval (env REPEAT)
   -telegraf-endpoint string
     	if configured, metrics will be sent as line protocol to telegraf (env TELEGRAF_ENDPOINT)
 ```
@@ -33,6 +35,8 @@ By default, metrics are reported to the console, such as:
 2019-12-27T22:39:36-06:00 pod=influxdb-0, container=influxdb, cpu=2m, mem=37Mi
 ```
 
+If an interval is given, then the application will continue to run reporting metrics at the given interval. 
+
 ### Telegraf
 
 When the telegraf endpoint is configured, the metrics will be sent using Influx line protocol to the `host:port` given. The endpoint should be a socket_listener plugin configured such as:
@@ -48,6 +52,8 @@ kubernetes_pod_container,container_name=nginx-ingress-controller,host=dbc5f98128
 kubernetes_pod_container,container_name=grafana,host=dbc5f9812889,namespace=default,pod_name=grafana-0 cpu_usage_millicores=1i,memory_usage_mbytes=20i 1577507390268680300
 kubernetes_pod_container,container_name=influxdb,host=dbc5f9812889,namespace=default,pod_name=influxdb-0 cpu_usage_millicores=1i,memory_usage_mbytes=37i 1577507390268680300
 ```
+
+If labels are included, they are conveyed as tags with the prefix "label_".
 
 ## Service account
 

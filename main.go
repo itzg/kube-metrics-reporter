@@ -1,23 +1,23 @@
 package main
 
 import (
-	"fmt"
 	"github.com/itzg/go-flagsfiller"
 	"github.com/itzg/zapconfigs"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
-	"k8s.io/metrics/pkg/client/clientset/versioned/typed/metrics/v1beta1"
 	"time"
 )
 
+const (
+	DefaultInterval = 1 * time.Minute
+)
+
 var config struct {
-	Namespace string `default:"default" usage:"the namespace of the pods to collect"`
-	Interval time.Duration `default:"1m" usage:"the interval of metrics collection"`
-	Repeat bool `usage:"indicates console reporting should repeat at the given interval"`
-	Telegraf struct {
+	Namespace     string        `default:"default" usage:"the namespace of the pods to collect"`
+	Interval      time.Duration `usage:"the interval of metrics collection"`
+	IncludeLabels bool          `usage:"include pod labels in reported metrics"`
+	Telegraf      struct {
 		Endpoint string `usage:"if configured, metrics will be sent as line protocol to telegraf"`
 	}
 }
@@ -32,18 +32,32 @@ func main() {
 		logger.Fatalw("parsing flags", "err", err)
 	}
 
+	// Connect to kubernetes and get metrics clientset
+
 	configLoadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(configLoadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
 	if err != nil {
 		logger.Fatalw("loading kubeConfig", "err", err)
 	}
 
+	var labelResolver LabelResolver
+	if config.IncludeLabels {
+		labelResolver, err = NewWatchingLabelResolver(kubeConfig, config.Namespace, logger)
+		if err != nil {
+			logger.Fatalw("creating kube clientset", "err", err)
+		}
+	} else {
+		labelResolver = &DisabledLabelResolver{}
+	}
+
 	clientset, err := versioned.NewForConfig(kubeConfig)
 	if err != nil {
-		logger.Fatalw("creating kube clientset", "err", err)
+		logger.Fatalw("creating metrics clientset", "err", err)
 	}
 
 	podMetricsAccessor := clientset.MetricsV1beta1().PodMetricses(config.Namespace)
+
+	// Determine reporters
 
 	var reporters []Reporter
 
@@ -53,7 +67,9 @@ func main() {
 			logger.Fatalw("creating telegraf reporter", "err", err)
 		}
 		reporters = append(reporters, reporter)
-		config.Repeat = true
+		if config.Interval == 0 {
+			config.Interval = DefaultInterval
+		}
 
 		logger.Infow("reporting metrics to telegraf",
 			"endpoint", config.Telegraf.Endpoint,
@@ -64,49 +80,18 @@ func main() {
 		reporters = append(reporters, &StdoutReporter{})
 	}
 
-	if config.Repeat {
+	if config.Interval > 0 {
 		for {
-			err = collect(podMetricsAccessor, reporters, config.Namespace)
+			err = collect(podMetricsAccessor, reporters, labelResolver, config.Namespace)
 			if err != nil {
 				logger.Error("err", err)
 			}
 			time.Sleep(config.Interval)
 		}
 	} else {
-		err = collect(podMetricsAccessor, reporters, config.Namespace)
+		err = collect(podMetricsAccessor, reporters, labelResolver, config.Namespace)
 		if err != nil {
 			logger.Error("err", err)
 		}
 	}
-}
-
-func collect(podMetricsAccessor v1beta1.PodMetricsInterface, reporters []Reporter, namespace string) error {
-	podMetricsList, err := podMetricsAccessor.List(metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to list kube metrics: %w", err)
-	}
-
-	batches := make([]Batch, len(reporters))
-	for i, reporter := range reporters {
-		batches[i] = reporter.Start(namespace)
-	}
-
-	for _, p := range podMetricsList.Items {
-		podName := p.Name
-		for _, c := range p.Containers {
-			containerName := c.Name
-			// matching the units reported by kubectl top pods
-			cpuUsage := c.Usage.Cpu().ScaledValue(resource.Milli)
-			memUsage := c.Usage.Memory().ScaledValue(resource.Mega)
-			for _, batch := range batches {
-				batch.Report(podName, containerName, cpuUsage, memUsage)
-			}
-		}
-	}
-
-	for _, batch := range batches {
-		_ = batch.Close()
-	}
-
-	return nil
 }

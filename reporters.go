@@ -6,6 +6,7 @@ import (
 	lpsender "github.com/itzg/line-protocol-sender"
 	"go.uber.org/zap"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -16,7 +17,7 @@ type Reporter interface {
 type Batch interface {
 	io.Closer
 	// cpuUsage is millicores and memUsage is megabytes
-	Report(podName, containerName string, cpuUsage, memUsage int64)
+	Report(podName, containerName string, labels map[string]string, cpuUsage, memUsage int64)
 }
 
 type StdoutReporter struct{}
@@ -34,12 +35,28 @@ func (r StdoutReporter) Start(namespace string) Batch {
 }
 
 func (s *StdoutBatch) Close() error {
+	fmt.Println("---")
 	return nil
 }
 
-func (s *StdoutBatch) Report(podName, containerName string, cpuUsage, memUsage int64) {
-	fmt.Printf("%s pod=%s, container=%s, cpu=%dm, mem=%dMi\n",
-		s.timestamp.Format(time.RFC3339), podName, containerName, cpuUsage, memUsage)
+func (s *StdoutBatch) Report(podName, containerName string, labels map[string]string, cpuUsage, memUsage int64) {
+	var labelsBuilder strings.Builder
+	first := true
+	for k, v := range labels {
+		if first {
+			labelsBuilder.WriteString(" ")
+			first = false
+		} else {
+			labelsBuilder.WriteString(", ")
+		}
+		labelsBuilder.WriteString("label:")
+		labelsBuilder.WriteString(k)
+		labelsBuilder.WriteString("=")
+		labelsBuilder.WriteString(v)
+	}
+
+	fmt.Printf("%s pod=%s, container=%s,%s cpu=%dm, mem=%dMi\n",
+		s.timestamp.Format(time.RFC3339), podName, containerName, labelsBuilder.String(), cpuUsage, memUsage)
 }
 
 type TelegrafReporter struct {
@@ -65,13 +82,16 @@ func (t *TelegrafReporter) Start(namespace string) Batch {
 	}
 }
 
-func (t *telegrafBatch) Report(podName, containerName string, cpuUsage, memUsage int64) {
+func (t *telegrafBatch) Report(podName, containerName string, labels map[string]string, cpuUsage, memUsage int64) {
 	m := lpsender.NewSimpleMetric("kubernetes_pod_container")
 	m.SetTime(t.timestamp)
 
 	m.AddTag("namespace", t.namespace)
 	m.AddTag("pod_name", podName)
 	m.AddTag("container_name", containerName)
+	for k, v := range labels {
+		m.AddTag("label_"+k, v)
+	}
 
 	m.AddField("cpu_usage_millicores", cpuUsage)
 	m.AddField("memory_usage_mbytes", memUsage)
