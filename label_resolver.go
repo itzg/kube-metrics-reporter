@@ -57,16 +57,25 @@ func (w *WatchingLabelResolver) watch() {
 
 	for {
 		e := <-watchIf.ResultChan()
-		pod := e.Object.(*corev1.Pod)
 		switch e.Type {
 		case watch.Added, watch.Modified:
-			w.labelsLock.Lock()
-			w.labels[pod.Name] = pod.Labels
-			w.labelsLock.Unlock()
+			if pod, ok := e.Object.(*corev1.Pod); ok {
+				w.labelsLock.Lock()
+				w.labels[pod.Name] = pod.Labels
+				w.labelsLock.Unlock()
+			} else {
+				w.logger.Warnw("wrong object type for event",
+					"evt", e)
+			}
 		case watch.Deleted:
-			w.labelsLock.Lock()
-			delete(w.labels, pod.Name)
-			w.labelsLock.Unlock()
+			if pod, ok := e.Object.(*corev1.Pod); ok {
+				w.labelsLock.Lock()
+				delete(w.labels, pod.Name)
+				w.labelsLock.Unlock()
+			} else {
+				w.logger.Warnw("wrong object type for event",
+					"evt", e)
+			}
 		}
 	}
 }
