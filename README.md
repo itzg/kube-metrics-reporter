@@ -7,7 +7,9 @@ Simple application that accesses the [Kubernetes metrics API](https://github.com
 
 The Metrics API is exposed by a deployed [Metrics Server](https://kubernetes.io/docs/tasks/debug-application-cluster/resource-metrics-pipeline/#metrics-server) which is included in most managed clusters. [It can also be deployed separately.](https://github.com/kubernetes-sigs/metrics-server).
 
-## Usage
+## Stand-alone Usage
+
+The `kube-metrics-reporter` executable can be executed outside of Kubernetes cluster, in which case it will locate and use the kubernetes configuration from the standard location(s).
 
 ```
   -include-labels
@@ -20,9 +22,40 @@ The Metrics API is exposed by a deployed [Metrics Server](https://kubernetes.io/
     	if configured, metrics will be sent as line protocol to telegraf (env TELEGRAF_ENDPOINT)
 ```
 
+## In-cluster Usage
+
+With a service account defined with the correct roles, [as described below](#service-account), the reporter can be deployed with a pod manifest such as the following:
+
+```yaml
+    metadata:
+      name: kube-metrics-reporter
+      labels:
+        app: kube-metrics-reporter
+    spec:
+      serviceAccountName: kube-metrics-monitor
+      containers:
+        - name: kube-metrics-reporter
+          image: itzg/kube-metrics-reporter
+          env:
+            - name: TELEGRAF_ENDPOINT
+              value: telegraf:8094
+            - name: INTERVAL
+              value: "1m"
+            - name: INCLUDE_LABELS
+              value: "true"
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+```
+
+> The example assumes a telegraf service in the same namespace with a socket_listener input plugin configured for port 8094.
+
 ## Reporters
 
-The units reported match that of `kubectl top pods` where CPU usage is reported in millicores, which is 1/1000th of a vCPU core, and memory is reported in megabytes.
+**NOTE** the units reported match that of `kubectl top pods` where
+- CPU usage is reported in millicores, which is 1/1000th of a vCPU core
+- memory usage is reported in [mebibytes](https://en.wikipedia.org/wiki/Mebibyte) (Mi).
 
 ### Console
 
@@ -57,7 +90,9 @@ If labels are included, they are conveyed as tags with the prefix "label_".
 
 ## Service account
 
-Since this application accesses the metrics API of the kubernetes API service, the pod will need to be assigned a service account with an appropriate role.
+Since this application accesses the metrics API of the kubernetes API service, the pod will need to be assigned a service account with an appropriate role. 
+
+> Service accounts must be present before the deployment, so either ensure the service account manifest is applied first or place the service account yaml documents before the deployment in the same manifest file.
 
 The following shows how a service account could be declared:
 
@@ -96,40 +131,3 @@ subjects:
 ```
 
 > If not including labels, you can remove the pods watch on `apiGroups:[""]`
-
-The following then shows how a deployment could be configured to use the service account:
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kube-metrics-reporter
-  labels:
-    app: kube-metrics-reporter
-spec:
-  replicas: 1
-  template:
-    metadata:
-      name: kube-metrics-reporter
-      labels:
-        app: kube-metrics-reporter
-    spec:
-      serviceAccountName: kube-metrics-monitor
-      containers:
-        - name: kube-metrics-reporter
-          image: itzg/kube-metrics-reporter:v0.1.0
-          env:
-            - name: TELEGRAF_ENDPOINT
-              value: telegraf:8094
-            - name: NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-          resources:
-            requests:
-              cpu: 10m
-      restartPolicy: Always
-  selector:
-    matchLabels:
-      app: kube-metrics-reporter
-```
