@@ -3,12 +3,12 @@ package main
 import (
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
-	clientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"sync"
+	"time"
 )
 
 type LabelResolver interface {
@@ -16,8 +16,9 @@ type LabelResolver interface {
 }
 
 type WatchingLabelResolver struct {
-	podInterface clientv1.PodInterface
-	logger       *zap.SugaredLogger
+	logger    *zap.SugaredLogger
+	clientset *kubernetes.Clientset
+	namespace string
 
 	// labels maps pod name to labels
 	labels     map[string]map[string]string
@@ -30,14 +31,17 @@ func NewWatchingLabelResolver(c *rest.Config, namespace string, logger *zap.Suga
 		return nil, err
 	}
 
-	podInterface := clientset.CoreV1().Pods(namespace)
-
 	w := &WatchingLabelResolver{
-		podInterface: podInterface,
-		logger:       logger.Named("label_resolver"),
-		labels:       make(map[string]map[string]string),
+		clientset: clientset,
+		logger:    logger.Named("label_resolver"),
+		labels:    make(map[string]map[string]string),
+		namespace: namespace,
 	}
 	go w.watch()
+
+	// allow for initial pod-label loading
+	time.Sleep(1 * time.Second)
+
 	return w, nil
 }
 
@@ -48,37 +52,48 @@ func (w *WatchingLabelResolver) Resolve(podName string) map[string]string {
 }
 
 func (w *WatchingLabelResolver) watch() {
-	watchIf, err := w.podInterface.Watch(metav1.ListOptions{})
-	if err != nil {
-		w.logger.Errorw("failed to watch pods", "err", err)
-		return
+	listWatch := cache.NewListWatchFromClient(
+		w.clientset.CoreV1().RESTClient(),
+		string(corev1.ResourcePods),
+		w.namespace,
+		fields.Everything(),
+	)
+
+	_, controller := cache.NewInformer(
+		listWatch,
+		&corev1.Pod{},
+		0,
+		cache.ResourceEventHandlerFuncs{
+			AddFunc:    w.add,
+			UpdateFunc: w.update,
+			DeleteFunc: w.delete,
+		})
+
+	w.logger.Infow("watching for pod label changes")
+	controller.Run(nil)
+}
+
+func (w *WatchingLabelResolver) addUpdate(obj interface{}) {
+	if pod, ok := obj.(*corev1.Pod); ok {
+		w.labelsLock.Lock()
+		w.labels[pod.Name] = pod.Labels
+		w.labelsLock.Unlock()
 	}
-	defer watchIf.Stop()
+}
 
-	for {
-		e := <-watchIf.ResultChan()
-		w.logger.Debugw("received pod event", "event", e)
+func (w *WatchingLabelResolver) add(obj interface{}) {
+	w.addUpdate(obj)
+}
 
-		switch e.Type {
-		case watch.Added, watch.Modified:
-			if pod, ok := e.Object.(*corev1.Pod); ok {
-				w.labelsLock.Lock()
-				w.labels[pod.Name] = pod.Labels
-				w.labelsLock.Unlock()
-			} else {
-				w.logger.Warnw("wrong object type for event",
-					"evt", e)
-			}
-		case watch.Deleted:
-			if pod, ok := e.Object.(*corev1.Pod); ok {
-				w.labelsLock.Lock()
-				delete(w.labels, pod.Name)
-				w.labelsLock.Unlock()
-			} else {
-				w.logger.Warnw("wrong object type for event",
-					"evt", e)
-			}
-		}
+func (w *WatchingLabelResolver) update(_ interface{}, newObj interface{}) {
+	w.addUpdate(newObj)
+}
+
+func (w *WatchingLabelResolver) delete(obj interface{}) {
+	if pod, ok := obj.(*corev1.Pod); ok {
+		w.labelsLock.Lock()
+		delete(w.labels, pod.Name)
+		w.labelsLock.Unlock()
 	}
 }
 

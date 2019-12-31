@@ -8,6 +8,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
 	"log"
+	"os"
 	"time"
 )
 
@@ -93,6 +94,8 @@ func main() {
 			err = collect(podMetricsAccessor, reporters, labelResolver, config.Namespace)
 			if err != nil {
 				logger.Error("err", err)
+				// go ahead and exit since there's probably a misconfig with metrics server, roles, etc
+				os.Exit(1)
 			}
 			time.Sleep(config.Interval)
 		}
