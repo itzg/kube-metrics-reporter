@@ -7,6 +7,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
+	"log"
 	"time"
 )
 
@@ -26,6 +27,11 @@ var config struct {
 
 func main() {
 
+	err := flagsfiller.Parse(&config, flagsfiller.WithEnv(""))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	var logger *zap.SugaredLogger
 	if config.Debug {
 		logger = zapconfigs.NewDebugLogger().Sugar()
@@ -33,11 +39,6 @@ func main() {
 		logger = zapconfigs.NewDefaultLogger().Sugar()
 	}
 	defer logger.Sync()
-
-	err := flagsfiller.Parse(&config, flagsfiller.WithEnv(""))
-	if err != nil {
-		logger.Fatalw("parsing flags", "err", err)
-	}
 
 	// Connect to kubernetes and get metrics clientset
 
