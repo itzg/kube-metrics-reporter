@@ -115,7 +115,7 @@ rules:
   - apiGroups: [""]
     resources:
       - pods
-    verbs: ["watch"]
+    verbs: ["list","watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
