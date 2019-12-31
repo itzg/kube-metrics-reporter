@@ -57,6 +57,8 @@ func (w *WatchingLabelResolver) watch() {
 
 	for {
 		e := <-watchIf.ResultChan()
+		w.logger.Debugw("received pod event", "event", e)
+
 		switch e.Type {
 		case watch.Added, watch.Modified:
 			if pod, ok := e.Object.(*corev1.Pod); ok {

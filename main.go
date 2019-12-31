@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/itzg/go-flagsfiller"
 	"github.com/itzg/zapconfigs"
+	"go.uber.org/zap"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
@@ -17,6 +18,7 @@ var config struct {
 	Namespace     string        `default:"default" usage:"the namespace of the pods to collect"`
 	Interval      time.Duration `usage:"the interval of metrics collection"`
 	IncludeLabels bool          `usage:"include pod labels in reported metrics"`
+	Debug         bool          `usage:"enable debug logging"`
 	Telegraf      struct {
 		Endpoint string `usage:"if configured, metrics will be sent as line protocol to telegraf"`
 	}
@@ -24,7 +26,12 @@ var config struct {
 
 func main() {
 
-	logger := zapconfigs.NewDefaultLogger().Sugar()
+	var logger *zap.SugaredLogger
+	if config.Debug {
+		logger = zapconfigs.NewDebugLogger().Sugar()
+	} else {
+		logger = zapconfigs.NewDefaultLogger().Sugar()
+	}
 	defer logger.Sync()
 
 	err := flagsfiller.Parse(&config, flagsfiller.WithEnv(""))
